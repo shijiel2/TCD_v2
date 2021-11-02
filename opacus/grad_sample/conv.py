@@ -9,6 +9,7 @@ import torch.nn as nn
 from opacus.utils.tensor_utils import unfold3d
 
 from .utils import register_grad_sampler
+import torch.nn.functional as F
 
 
 @register_grad_sampler([nn.Conv1d, nn.Conv2d, nn.Conv3d])
@@ -20,60 +21,34 @@ def compute_conv_grad_sample(
     """
     Computes per sample gradients for convolutional layers
 
-    Args:
+    args:
         layer: Layer
         activations: Activations
         backprops: Backpropagations
     """
-    n = activations.shape[0]
-    # get A and B in shape depending on the Conv layer
-    if type(layer) == nn.Conv2d:
-        activations = torch.nn.functional.unfold(
-            activations,
-            layer.kernel_size,
-            padding=layer.padding,
-            stride=layer.stride,
-            dilation=layer.dilation,
-        )
-        backprops = backprops.reshape(n, -1, activations.shape[-1])
-    elif type(layer) == nn.Conv1d:
-        # unfold doesn't work for 3D tensors; so force it to be 4D
-        activations = activations.unsqueeze(-2)  # add the H dimension
-        # set arguments to tuples with appropriate second element
-        activations = torch.nn.functional.unfold(
-            activations,
-            (1, layer.kernel_size[0]),
-            padding=(0, layer.padding[0]),
-            stride=(1, layer.stride[0]),
-            dilation=(1, layer.dilation[0]),
-        )
-        backprops = backprops.reshape(n, -1, activations.shape[-1])
-    elif type(layer) == nn.Conv3d:
-        activations = unfold3d(
-            activations,
-            kernel_size=layer.kernel_size,
-            padding=layer.padding,
-            stride=layer.stride,
-            dilation=layer.dilation,
-        )
-        backprops = backprops.reshape(n, -1, activations.shape[-1])
+    # TODO: No clue what is up when stride is not (1, 1)
+    if layer.stride == (1, 1):
+        # Things are hardcoded for conv2d at the moment
+        assert len(layer.stride) == 2
+        assert len(layer.padding) == 2
+        assert len(layer.dilation) == 2
 
-    # n=batch_sz; o=num_out_channels; p=(num_in_channels/groups)*kernel_sz
-    grad_sample = torch.einsum("noq,npq->nop", backprops, activations)
-    # rearrange the above tensor and extract diagonals.
-    grad_sample = grad_sample.view(
-        n,
-        layer.groups,
-        -1,
-        layer.groups,
-        int(layer.in_channels / layer.groups),
-        np.prod(layer.kernel_size),
-    )
-    grad_sample = torch.einsum("ngrg...->ngr...", grad_sample).contiguous()
-    shape = [n] + list(layer.weight.shape)
+        batch_size = activations.shape[0]
+        I = activations.shape[1]
+        O = backprops.shape[1]
 
-    ret = {layer.weight: grad_sample.view(shape)}
-    if layer.bias is not None:
-        ret[layer.bias] = torch.sum(backprops, dim=2)
+        activations_ = activations.transpose(0, 1)
+        backprops_ = backprops.view(backprops.shape[0] * backprops.shape[1], 1, backprops.shape[2], backprops.shape[3])
 
-    return ret
+        weight_grad_sample = F.conv2d(activations_, backprops_, None, layer.stride, layer.padding, layer.dilation, groups=batch_size)
+        weight_grad_sample = weight_grad_sample.view(I, batch_size, O, *weight_grad_sample.shape[-2:])
+        weight_grad_sample = weight_grad_sample.movedim(0, 2)
+
+
+        ret = {
+            layer.weight: weight_grad_sample
+        }
+        if layer.bias is not None:
+            ret[layer.bias] = torch.sum(backprops, dim=[-1, -2])
+
+        return ret
