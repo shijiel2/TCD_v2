@@ -18,10 +18,10 @@ class Conv2d_test(GradSampleHooks_test):
         H=st.integers(6, 10),
         W=st.integers(6, 10),
         out_channels_mapper=st.sampled_from([expander, shrinker]),
-        kernel_size=st.integers(2, 3),
+        kernel_size=st.integers(2, 4),
         stride=st.sampled_from([1]),#st.integers(1, 2),
-        padding=st.sampled_from([0, 2]),
-        dilation=st.sampled_from([1]),#st.integers(1, 2),
+        padding=st.sampled_from([0, 1, 2, 3, 4]),
+        dilation=st.sampled_from([1, 2, 3]),#st.integers(1, 2),
         groups=st.integers(1, 16),
     )
     @settings(deadline=10000)
