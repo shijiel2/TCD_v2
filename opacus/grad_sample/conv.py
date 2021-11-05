@@ -35,6 +35,7 @@ def compute_conv_grad_sample(
 
     batch_size = activations.shape[0]
     I = activations.shape[1]
+    O = backprops.shape[1]
 
     # activations has shape (B, I, H, W)
     # backprops has shape (B, O, H, W)
