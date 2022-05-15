@@ -51,12 +51,12 @@ elif DATASET == 'cifar10':
     results_folder = '../results/cifar10'
     model_names = ['ResNet18']
     training_size = 50000
-    n_runss = [1000]
+    n_runss = [5]
     epochss = [200]
     sigmas = [0.0] # sigmas = [1.0, 1.5, 2.0]
     sample_rates = [100/500] # sample_rates = [512/10000, 1024/10000]
     lrs = [0.1] # lrs = [0.01, 0.05, 0.1]
-    clips = [1000000] # clips = [34 for sigma=1]
+    clips = [1000000, 1000, 100, 50, 10] # clips = [34 for sigma=1]
     sub_training_sizes = [500]
     
 

@@ -118,7 +118,7 @@ def train(args, model, train_loader, optimizer, privacy_engine, epoch, device, p
 
     for i, (images, target) in enumerate(tqdm(train_loader)):
 
-        print(torch.cuda.memory_summary())
+        # print(torch.cuda.memory_summary())
         
         images = images.to(device)
         target = target.to(device)
@@ -156,14 +156,14 @@ def train(args, model, train_loader, optimizer, privacy_engine, epoch, device, p
             logger.info(
                 f"\tTrain Epoch: {epoch} \t"
                 f"Loss: {np.mean(losses):.6f} "
-                f"Acc@1: {np.mean(top1_acc):.6f} "
-                f"(ε = {epsilon:.2f}, δ = {args.delta}) for α = {best_alpha}"
+                f"Acc_train: {np.mean(top1_acc):.6f} "
+                f"(epsilon = {epsilon:.2f}, delta = {args.delta}) for alpha = {best_alpha}"
             )
         else:
             logger.info(
                 f"\tTrain Epoch: {epoch} \t"
                 f"Loss: {np.mean(losses):.6f} "
-                f"Acc@1: {np.mean(top1_acc):.6f} "
+                f"Acc_train: {np.mean(top1_acc):.6f} "
             )
 
 
@@ -189,7 +189,7 @@ def test(args, model, test_loader, device):
 
     top1_avg = np.mean(top1_acc)
 
-    logger.info(f"\tTest set:" f"Loss: {np.mean(losses):.6f} " f"Acc@1: {top1_avg :.6f} ")
+    logger.info(f"\tTest set:" f"Loss: {np.mean(losses):.6f} " f"Acc_test: {top1_avg :.6f} ")
     return np.mean(top1_acc)
 
 
