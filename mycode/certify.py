@@ -18,6 +18,8 @@ import matplotlib.pyplot as plt
 import scipy.stats
 from certify_utilis import *
 
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -153,7 +155,7 @@ def certified_acc_against_radius_dp_baseline(clean_acc_list, dp_epsilon, dp_delt
 def plot_certified_acc(c_acc_lists, c_rad_lists, name_list, color_list, linestyle_list, plot_path, xlabel='Radius', ylabel='Certified Accuracy'):
     print(plot_path)
     for c_acc_list, c_rad_list, name, color, linestyle in zip(c_acc_lists, c_rad_lists, name_list, color_list, linestyle_list):
-        logging.info(f'(Rad, Acc):{list(zip(c_rad_list, c_acc_list))}')
+        logger.info(f'(Rad, Acc):{list(zip(c_rad_list, c_acc_list))}')
         plt.plot(c_rad_list, c_acc_list, color, label=name, linewidth=1, linestyle=linestyle)
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
@@ -178,13 +180,13 @@ def plot_interval(rad, lower, upper, xrange, plot_path, ylim=None):
 def certify(method_name):
     if 'softmax' not in method_name:
         gt, pred = aggres_meta_info(aggregate_result)
-        logging.info(f"Clean acc: {(gt == pred).sum() / len(pred)}")
+        logger.info(f"Clean acc: {(gt == pred).sum() / len(pred)}")
     else:
         aggregate_result_softmax_rm = np.mean(aggregate_result_softmax, axis=0)  
         gt, pred = aggres_meta_info(aggregate_result_softmax_rm)
-        logging.info(f"Clean acc: {(gt == pred).sum() / len(pred)}")
+        logger.info(f"Clean acc: {(gt == pred).sum() / len(pred)}")
 
-    certified_poisoning_size_array = np.zeros([num_data], dtype=np.int)
+    certified_poisoning_size_array = np.zeros([num_data], dtype=np.int32)
     dp_bagging_rads = []
 
     # if 'softmax' in method_name:
@@ -244,10 +246,10 @@ def certify(method_name):
     certified_acc_list, certified_radius_list = certified_acc_against_radius(
         certified_poisoning_size_array)
 
-    logging.info(f'Clean acc: {(gt == pred).sum() / len(pred)}')
-    logging.info(
+    logger.info(f'Clean acc: {(gt == pred).sum() / len(pred)}')
+    logger.info(
         f'{method_name}: certified_poisoning_size_list:\n{certified_radius_list}')
-    logging.info(
+    logger.info(
         f'{method_name}: certified_acc_list_dp:\n{certified_acc_list}')
     return certified_poisoning_size_array
 
@@ -257,10 +259,12 @@ if __name__ == "__main__":
     result_folder = result_folder_path_generator(args)
     print(result_folder)
 
-    # log file for this experiment
-    logging.basicConfig(
-        filename=f"{result_folder}/certify.log", filemode='w', level=logging.INFO)
-    logging.getLogger().addHandler(logging.StreamHandler())
+    # set logging file path
+    fh = logging.FileHandler(f"{result_folder}/certify.log", mode='w')
+    fh.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(asctime)s:%(levelname)s:%(message)s', datefmt='%m/%d/%Y %H:%M:%S')
+    fh.setFormatter(formatter)
+    logger.addHandler(fh)
 
     # laod data
     aggregate_result = np.load(f"{result_folder}/aggregate_result.npy")
@@ -279,14 +283,14 @@ if __name__ == "__main__":
         rdp_steps = np.load(f"{result_folder}/rdp_steps.npy")
 
         # log params
-        logging.info(
+        logger.info(
             f'lr: {args.lr} sigma: {args.sigma} C: {args.max_per_sample_grad_norm} sample_rate: {args.sample_rate} epochs: {args.epochs} n_runs: {args.n_runs}')
-        logging.info(f'dp  epsilon: {dp_epsilon}')
-        logging.info(f'rdp epsilons: {rdp_epsilons}')
-        logging.info(f'rdp steps: {rdp_steps}')
-        logging.info(f'aggregate results:\n{aggregate_result}')
+        logger.info(f'dp  epsilon: {dp_epsilon}')
+        logger.info(f'rdp epsilons: {rdp_epsilons}')
+        logger.info(f'rdp steps: {rdp_steps}')
+        logger.info(f'aggregate results:\n{aggregate_result}')
     else:
-        logging.info(f'aggregate results:\n{aggregate_result}')
+        logger.info(f'aggregate results:\n{aggregate_result}')
 
     # Certify
     if args.mode == 'certify':

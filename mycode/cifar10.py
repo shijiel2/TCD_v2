@@ -24,6 +24,7 @@ import shutil
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
+import gc
 
 import numpy as np
 import torch
@@ -104,8 +105,10 @@ def accuracy(preds, labels):
     return (preds == labels).mean()
 
 
-def train(args, model, train_loader, optimizer, privacy_engine, epoch, device):
-    start_time = datetime.now()
+def train(args, model, train_loader, optimizer, privacy_engine, epoch, device, print_result=False, optimizer_bn=None):
+
+    torch.cuda.empty_cache()
+    gc.collect()
 
     model.train()
     criterion = nn.CrossEntropyLoss()
@@ -115,20 +118,14 @@ def train(args, model, train_loader, optimizer, privacy_engine, epoch, device):
 
     for i, (images, target) in enumerate(tqdm(train_loader)):
 
+        print(torch.cuda.memory_summary())
+        
         images = images.to(device)
         target = target.to(device)
 
         # compute output
         output = model(images)
         loss = criterion(output, target)
-        preds = np.argmax(output.detach().cpu().numpy(), axis=1)
-        labels = target.detach().cpu().numpy()
-
-        # measure accuracy and record loss
-        acc1 = accuracy(preds, labels)
-
-        losses.append(loss.item())
-        top1_acc.append(acc1)
 
         # compute gradient and do SGD step
         loss.backward()
@@ -138,26 +135,36 @@ def train(args, model, train_loader, optimizer, privacy_engine, epoch, device):
         optimizer.step()
         optimizer.zero_grad()
 
-        if i % args.print_freq == 0:
-            if not args.train_mode == 'Bagging':
-                epsilon, best_alpha = privacy_engine.accountant.get_privacy_spent(
-                    delta=args.delta,
-                    alphas=[1 + x / 10.0 for x in range(1, 100)] + list(range(12, 64)),
-                )
-                logger.info(
-                    f"\tTrain Epoch: {epoch} \t"
-                    f"Loss: {np.mean(losses):.6f} "
-                    f"Acc@1: {np.mean(top1_acc):.6f} "
-                    f"(ε = {epsilon:.2f}, δ = {args.delta}) for α = {best_alpha}"
-                )
-            else:
-                logger.info(
-                    f"\tTrain Epoch: {epoch} \t"
-                    f"Loss: {np.mean(losses):.6f} "
-                    f"Acc@1: {np.mean(top1_acc):.6f} "
-                )
-    train_duration = datetime.now() - start_time
-    return train_duration
+        if optimizer_bn is not None:
+            optimizer_bn.step()
+            optimizer_bn.zero_grad()
+
+        # measure accuracy and record loss
+        preds = np.argmax(output.detach().cpu().numpy(), axis=1)
+        labels = target.detach().cpu().numpy()
+        acc1 = accuracy(preds, labels)
+
+        losses.append(loss.detach().item())
+        top1_acc.append(acc1)
+
+    if print_result:
+        if not args.train_mode == 'Bagging':
+            epsilon, best_alpha = privacy_engine.accountant.get_privacy_spent(
+                delta=args.delta,
+                alphas=[1 + x / 10.0 for x in range(1, 100)] + list(range(12, 64)),
+            )
+            logger.info(
+                f"\tTrain Epoch: {epoch} \t"
+                f"Loss: {np.mean(losses):.6f} "
+                f"Acc@1: {np.mean(top1_acc):.6f} "
+                f"(ε = {epsilon:.2f}, δ = {args.delta}) for α = {best_alpha}"
+            )
+        else:
+            logger.info(
+                f"\tTrain Epoch: {epoch} \t"
+                f"Loss: {np.mean(losses):.6f} "
+                f"Acc@1: {np.mean(top1_acc):.6f} "
+            )
 
 
 def test(args, model, test_loader, device):
@@ -177,7 +184,7 @@ def test(args, model, test_loader, device):
             labels = target.detach().cpu().numpy()
             acc1 = accuracy(preds, labels)
 
-            losses.append(loss.item())
+            losses.append(loss.detach().item())
             top1_acc.append(acc1)
 
     top1_avg = np.mean(top1_acc)
@@ -251,7 +258,8 @@ def main():
         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
     ]
     train_transform = transforms.Compose(
-        augmentations + normalize if args.train_mode == 'Bagging' else normalize
+        # augmentations + normalize if args.train_mode == 'Bagging' else normalize
+        augmentations + normalize
     )
     test_transform = transforms.Compose(normalize)
 
@@ -294,7 +302,6 @@ def main():
                 num_workers=args.workers,
                 generator=generator,
                 batch_size=128,
-                pin_memory=True,
             )
         return train_dataset, train_loader
 
@@ -342,18 +349,42 @@ def main():
                 model = DDP(model, device_ids=[device])
 
         if args.optim == "SGD":
-            optimizer = optim.SGD(
-                model.parameters(),
-                lr=args.lr,
-                momentum=args.momentum,
-                weight_decay=args.weight_decay,
-            )
-        elif args.optim == "RMSprop":
-            optimizer = optim.RMSprop(model.parameters(), lr=args.lr)
-        elif args.optim == "Adam":
-            optimizer = optim.Adam(model.parameters(), lr=args.lr)
+            if args.skip_bn:
+                # TODO: Always have momory leakage: tried to give non-bn-params in optimizer, not working; tried to freeze non-bn-parames in training, not working; 
+                # It seems like as long as I don't feed ALL params into PrivacyEngine Optimizer, it will cause memory leakage. 
+                optimizer = optim.SGD(
+                    [{'params': param} for name, param in model.named_parameters() if not ('bn' in name or 'shortcut.1' in name)],
+                    lr=args.lr,
+                    momentum=args.momentum,
+                    weight_decay=args.weight_decay,
+                )
+                optimizer_bn = optim.SGD(
+                    [{'params': param} for name, param in model.named_parameters() if 'bn' in name or 'shortcut.1' in name],
+                    lr=args.lr,
+                    momentum=args.momentum,
+                    weight_decay=args.weight_decay,
+                )
+            else:
+                optimizer = optim.SGD(
+                    model.parameters(),
+                    lr=args.lr,
+                    momentum=args.momentum,
+                    weight_decay=args.weight_decay,
+                )
+                optimizer_bn = None
+        # elif args.optim == "RMSprop":
+        #     optimizer = optim.RMSprop(model.parameters(), lr=args.lr)
+        # elif args.optim == "Adam":
+        #     optimizer = optim.Adam(model.parameters(), lr=args.lr)
         else:
             raise NotImplementedError("Optimizer not recognized. Please check spelling")
+
+        # use this code for "sub_training_size V.S. acc"
+        if args.sub_acc_test:
+            sub_training_size = int(50000 - 50000 / args.n_runs * run_idx)
+            _, train_loader = gen_train_dataset_loader(sub_training_size)
+        else:    
+            _, train_loader = gen_train_dataset_loader()
 
         # make model DP if necessary
         privacy_engine = None
@@ -369,9 +400,7 @@ def main():
             else:
                 max_grad_norm = args.max_per_sample_grad_norm
 
-            privacy_engine = PrivacyEngine(
-                secure_mode=args.secure_rng,
-            )
+            privacy_engine = PrivacyEngine()
             clipping = "per_layer" if args.clip_per_layer else "flat"
             model, optimizer, train_loader = privacy_engine.make_private(
                 module=model,
@@ -380,6 +409,7 @@ def main():
                 noise_multiplier=args.sigma,
                 max_grad_norm=max_grad_norm,
                 clipping=clipping,
+                poisson_sampling=False,
             )
 
         # Training and testing
@@ -390,22 +420,20 @@ def main():
             model.load_state_dict(torch.load(model_pt_file))
         # train the model
         else:
-            # use this code for "sub_training_size V.S. acc"
-            if args.sub_acc_test:
-                sub_training_size = int(50000 - 50000 / args.n_runs * run_idx)
-                _, train_loader = gen_train_dataset_loader(sub_training_size)
-            else:    
-                _, train_loader = gen_train_dataset_loader()
-
             epoch_acc_epsilon = []
+            logger.info(f'Run:{run_idx}')
             for epoch in range(args.start_epoch, args.epochs + 1):
                 if args.lr_schedule == "cos":
                     lr = args.lr * 0.5 * (1 + np.cos(np.pi * epoch / (args.epochs + 1)))
                     for param_group in optimizer.param_groups:
                         param_group["lr"] = lr
+                    if args.skip_bn:
+                        for param_group in optimizer_bn.param_groups:
+                            param_group["lr"] = lr
 
-                train_duration = train(
-                    args, model, train_loader, optimizer, privacy_engine, epoch, device
+                print_result = True if run_idx == 0 else False
+                train(
+                    args, model, train_loader, optimizer, privacy_engine, epoch, device, print_result=print_result, optimizer_bn=optimizer_bn
                 )
 
                 if args.run_test:
@@ -529,14 +557,6 @@ def parse_args():
         metavar="W",
         help="SGD weight decay",
         dest="weight_decay",
-    )
-    parser.add_argument(
-        "-p",
-        "--print-freq",
-        default=10,
-        type=int,
-        metavar="N",
-        help="print frequency (default: 10)",
     )
     parser.add_argument(
         "--resume",
@@ -694,6 +714,12 @@ def parse_args():
         action="store_true",
         default=False,
         help="Test subset V.S. acc (default: false)",
+    )
+    parser.add_argument(
+        "--skip-bn",
+        action="store_true",
+        default=False,
+        help="skip batchnorm",
     )
 
     return parser.parse_args()

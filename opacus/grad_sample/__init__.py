@@ -19,6 +19,7 @@ from .dp_rnn import compute_rnn_linear_grad_sample  # noqa
 from .embedding import compute_embedding_grad_sample  # noqa
 from .grad_sample_module import GradSampleModule, create_or_accumulate_grad_sample
 from .group_norm import compute_group_norm_grad_sample  # noqa
+from .batch_norm import compute_batch_norm_grad_sample  # noqa
 from .instance_norm import compute_instance_norm_grad_sample  # noqa
 from .layer_norm import compute_layer_norm_grad_sample  # noqa
 from .linear import compute_linear_grad_sample  # noqa

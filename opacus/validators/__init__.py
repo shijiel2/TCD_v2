@@ -18,7 +18,7 @@
 # we call register_module_validator and register_module_fixer
 # on respective methods
 
-from .batch_norm import fix, validate  # noqa
+# from .batch_norm import fix, validate  # noqa
 from .instance_norm import fix, validate  # noqa
 from .lstm import fix, validate  # noqa
 from .module_validator import ModuleValidator

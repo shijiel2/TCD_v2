@@ -825,4 +825,10 @@ def gen_sub_dataset(dataset, sub_training_size, with_replacement):
     print(f"Sub-dataset size {len(dataset)}")
     return dataset
 
-    
+def freeze_params(parames_list):
+    for p in parames_list:
+        p.requires_grad=False
+
+def unfreeze_params(parames_list):
+    for p in parames_list:
+        p.requires_grad=True
