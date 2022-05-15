@@ -107,8 +107,8 @@ def accuracy(preds, labels):
 
 def train(args, model, train_loader, optimizer, privacy_engine, epoch, device, print_result=False, optimizer_bn=None):
 
-    torch.cuda.empty_cache()
-    gc.collect()
+    # torch.cuda.empty_cache()
+    # gc.collect()
 
     model.train()
     criterion = nn.CrossEntropyLoss()
@@ -227,7 +227,6 @@ def main():
     
     # folder path
     result_folder = result_folder_path_generator(args)
-    print(f'Result folder: {result_folder}')
     models_folder = f"{result_folder}/models"
     Path(models_folder).mkdir(parents=True, exist_ok=True)
 
@@ -237,6 +236,10 @@ def main():
     formatter = logging.Formatter('%(asctime)s:%(levelname)s:%(message)s', datefmt='%m/%d/%Y %H:%M:%S')
     fh.setFormatter(formatter)
     logger.addHandler(fh)
+
+    # log meta info
+    logger.info(f'Result folder: {result_folder}')
+    logger.info(str(torch.__version__))
 
     # Sets `world_size = 1` if you run on a single GPU with `args.local_rank = -1`
     if args.local_rank != -1 or args.device != "cpu":
@@ -331,7 +334,7 @@ def main():
         # Pre-training stuff for each base classifier
         
         # Define the model
-        if args.model_name == 'ResNet18-DP':
+        if args.model_name == 'ResNet18-GN':
             model = ModuleValidator.fix(ResNet18()).to(device)
         elif args.model_name == 'ResNet18':
             model = ResNet18().to(device)
