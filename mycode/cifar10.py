@@ -42,6 +42,7 @@ from certify_utilis import result_folder_path_generator, gen_sub_dataset
 from sampler import FixedSizedUniformWithReplacementSampler, UniformWithReplacementSampler
 from models import ResNet18
 from opacus.validators import ModuleValidator
+from torch.utils.data.distributed import DistributedSampler
 
 
 logger = logging.getLogger()
@@ -58,6 +59,13 @@ def setup(args):
     if sys.platform == "win32":
         raise NotImplementedError("Windows version of multi-GPU is not supported yet.")
 
+    if args.dist_backend == 'nccl':
+        torch.distributed.init_process_group(backend="nccl")
+        local_rank = torch.distributed.get_rank()
+        rank = 0
+        world_size = torch.cuda.device_count()
+        return (rank, local_rank, world_size)
+        
     # Initialize the process group on a Slurm cluster
     if os.environ.get("SLURM_NTASKS") is not None:
         rank = int(os.environ.get("SLURM_PROCID"))
@@ -70,7 +78,7 @@ def setup(args):
             args.dist_backend, rank=rank, world_size=world_size
         )
 
-        logger.debug(
+        logger.info(
             f"Setup on Slurm: rank={rank}, local_rank={local_rank}, world_size={world_size}"
         )
 
@@ -86,14 +94,14 @@ def setup(args):
         local_rank = args.local_rank
         world_size = torch.distributed.get_world_size()
 
-        logger.debug(
+        logger.info(
             f"Setup with 'env://': rank={rank}, local_rank={local_rank}, world_size={world_size}"
         )
 
         return (rank, local_rank, world_size)
 
     else:
-        logger.debug(f"Running on a single GPU.")
+        logger.info(f"Running on a single GPU.")
         return (0, 0, 1)
 
 
@@ -233,7 +241,7 @@ def main():
     # set logging file path
     fh = logging.FileHandler(f"{result_folder}/train.log", mode='w')
     fh.setLevel(logging.INFO)
-    formatter = logging.Formatter('%(asctime)s:%(levelname)s:%(message)s', datefmt='%m/%d/%Y %H:%M:%S')
+    formatter = logging.Formatter('%(levelname)s:%(message)s')
     fh.setFormatter(formatter)
     logger.addHandler(fh)
 
@@ -274,19 +282,23 @@ def main():
 
         if args.train_mode == 'Sub-DP' or args.train_mode == 'Bagging':
             train_dataset = gen_sub_dataset(train_dataset, sub_training_size, True)
+
+        if world_size > 1:
+            dist_sampler = DistributedSampler(train_dataset)
+        else:
+            dist_sampler = None
         
         if args.train_mode == 'DP' or args.train_mode == 'Sub-DP':
             train_loader = torch.utils.data.DataLoader(
                 train_dataset,
                 num_workers=args.workers,
                 generator=generator,
-                batch_sampler=UniformWithReplacementSampler(
-                    num_samples=len(train_dataset),
-                    sample_rate=args.sample_rate,
-                    generator=generator,
-                ),
+                batch_size=int(args.sample_rate * len(train_dataset)/world_size),
+                sampler=dist_sampler,
             )
         elif args.train_mode == 'Sub-DP-no-amp':
+            # TODO: figure out how to add dist sampler to this one
+            raise NotImplementedError("Sub-DP-no-amp sampler is not defined")
             train_loader = torch.utils.data.DataLoader(
                 train_dataset,
                 num_workers=args.workers,
@@ -304,7 +316,8 @@ def main():
                 train_dataset,
                 num_workers=args.workers,
                 generator=generator,
-                batch_size=128,
+                batch_size=int(128/world_size),
+                sampler=dist_sampler,
             )
         return train_dataset, train_loader
 
@@ -475,9 +488,6 @@ def main():
                 np.save(f"{result_folder}/dp_epsilon", dp_epsilon)
                 np.save(f"{result_folder}/rdp_history", rdp_history)
 
-        if world_size > 1:
-            cleanup()
-
         # save preds and model
         logger.info(f'run_idx:{run_idx}')
         aggregate_result[np.arange(0, len(test_dataset)), pred(args, model, test_loader, device)] += 1
@@ -497,6 +507,8 @@ def main():
     if args.sub_acc_test:
         np.save(f"{result_folder}/subset_acc_list", sub_acc_list)
 
+    if world_size > 1:
+        cleanup()
 
 
 def parse_args():
@@ -504,7 +516,7 @@ def parse_args():
     parser.add_argument(
         "-j",
         "--workers",
-        default=2,
+        default=0,
         type=int,
         metavar="N",
         help="number of data loading workers (default: 2)",

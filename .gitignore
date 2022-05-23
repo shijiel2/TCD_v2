@@ -114,3 +114,5 @@ website/static/_sphinx-sources/
 
 results
 cifar10
+
+*.log
