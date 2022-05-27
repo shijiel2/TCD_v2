@@ -113,7 +113,7 @@ def accuracy(preds, labels):
     return (preds == labels).mean()
 
 
-def train(args, model, train_loader, optimizer, privacy_engine, epoch, device, print_result=False, optimizer_bn=None):
+def train(args, model, train_loader, optimizer, privacy_engine, epoch, device, print_result=False, optimizer_bn=None, batch_num=None):
 
     # torch.cuda.empty_cache()
     # gc.collect()
@@ -154,6 +154,10 @@ def train(args, model, train_loader, optimizer, privacy_engine, epoch, device, p
 
         losses.append(loss.detach().item())
         top1_acc.append(acc1)
+
+        if batch_num is not None and i+1 >= batch_num:
+            break
+
 
     if print_result:
         if not args.train_mode == 'Bagging':
@@ -274,11 +278,10 @@ def main():
     )
     test_transform = transforms.Compose(normalize)
 
-    def gen_train_dataset_loader(or_sub_training_size=None):
+    def gen_train_dataset_loader(sub_training_size):
         train_dataset = CIFAR10(
             root=args.data_root, train=True, download=True, transform=train_transform
         )
-        sub_training_size = args.sub_training_size if or_sub_training_size is None else or_sub_training_size
 
         if args.train_mode == 'Sub-DP' or args.train_mode == 'Bagging':
             train_dataset = gen_sub_dataset(train_dataset, sub_training_size, True)
@@ -287,29 +290,27 @@ def main():
             dist_sampler = DistributedSampler(train_dataset)
         else:
             dist_sampler = None
+
+        batch_size = int(args.sample_rate * len(train_dataset)/world_size)
+        batch_num = None
         
         if args.train_mode == 'DP' or args.train_mode == 'Sub-DP':
             train_loader = torch.utils.data.DataLoader(
                 train_dataset,
                 num_workers=args.workers,
                 generator=generator,
-                batch_size=int(args.sample_rate * len(train_dataset)/world_size),
+                batch_size=batch_size,
                 sampler=dist_sampler,
             )
         elif args.train_mode == 'Sub-DP-no-amp':
-            # TODO: figure out how to add dist sampler to this one
-            raise NotImplementedError("Sub-DP-no-amp sampler is not defined")
             train_loader = torch.utils.data.DataLoader(
                 train_dataset,
                 num_workers=args.workers,
                 generator=generator,
-                batch_sampler=FixedSizedUniformWithReplacementSampler(
-                    num_samples=len(train_dataset),
-                    sample_rate=args.sample_rate,
-                    train_size=sub_training_size,
-                    generator=generator,
-                ),
+                batch_size=batch_size,
+                sampler=dist_sampler,
             )
+            batch_num = int(sub_training_size / int(args.sample_rate * len(train_dataset)))
         else:
             print('No Gaussian Sampler')
             train_loader = torch.utils.data.DataLoader(
@@ -319,7 +320,7 @@ def main():
                 batch_size=int(128/world_size),
                 sampler=dist_sampler,
             )
-        return train_dataset, train_loader
+        return train_dataset, train_loader, batch_num
 
     def gen_test_dataset_loader():
         test_dataset = CIFAR10(
@@ -398,9 +399,10 @@ def main():
         # use this code for "sub_training_size V.S. acc"
         if args.sub_acc_test:
             sub_training_size = int(50000 - 50000 / args.n_runs * run_idx)
-            _, train_loader = gen_train_dataset_loader(sub_training_size)
+            _, train_loader, batch_num = gen_train_dataset_loader(sub_training_size)
         else:    
-            _, train_loader = gen_train_dataset_loader()
+            sub_training_size = args.sub_training_size
+            _, train_loader, batch_num = gen_train_dataset_loader(sub_training_size)
 
         # make model DP if necessary
         privacy_engine = None
@@ -449,7 +451,7 @@ def main():
 
                 print_result = True if run_idx == 0 else False
                 train(
-                    args, model, train_loader, optimizer, privacy_engine, epoch, device, print_result=print_result, optimizer_bn=optimizer_bn
+                    args, model, train_loader, optimizer, privacy_engine, epoch, device, print_result=print_result, optimizer_bn=optimizer_bn, batch_num=batch_num
                 )
 
                 if args.run_test:
