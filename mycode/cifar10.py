@@ -59,7 +59,7 @@ def setup(args):
     if sys.platform == "win32":
         raise NotImplementedError("Windows version of multi-GPU is not supported yet.")
 
-    if args.dist_backend == 'nccl':
+    if torch.cuda.device_count() > 1 and args.dist_backend == 'nccl':
         torch.distributed.init_process_group(backend="nccl")
         local_rank = torch.distributed.get_rank()
         rank = 0
