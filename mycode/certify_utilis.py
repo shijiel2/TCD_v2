@@ -10,6 +10,11 @@ from opacus import PrivacyEngine
 import scipy.stats
 import torch
 
+from opacus.accountants.analysis import rdp as privacy_analysis
+
+DEFAULT_ALPHAS = [1 + x / 10.0 for x in range(1, 100)] + list(range(12, 64))
+DEFAULT_DELTA = 1e-05
+
 
 def multi_ci(counts, alpha):
     multi_list = []
@@ -678,61 +683,91 @@ def CertifyRadiusDPBS_softmax_prob(ls, CI, k, n, delta, steps, sample_rate, sigm
     else:
         return 0
 
+def get_rdp(sample_rate, noise_multiplier, num_steps, alphas=DEFAULT_ALPHAS):
+    rdp = privacy_analysis.compute_rdp(
+                q=sample_rate,
+                noise_multiplier=noise_multiplier,
+                steps=num_steps,
+                orders=alphas,
+            )
+    return rdp
+
+def get_cdp(sample_rate, noise_multiplier, num_steps, alphas=DEFAULT_ALPHAS):
+    rdp = get_rdp(sample_rate, noise_multiplier, num_steps, alphas)
+    eps, best_alpha = privacy_analysis.get_privacy_spent(
+            orders=alphas, rdp=rdp, delta=DEFAULT_DELTA
+        )
+    return eps, best_alpha
 
 
 def get_dir(train_mode, results_folder, model_name, lr, sigma, max_per_sample_grad_norm, sample_rate, epochs, n_runs, sub_training_size):
+    max_per_sample_grad_norm = float(max_per_sample_grad_norm)
     if train_mode == 'DP':
         result_folder = (
-            f"{results_folder}/{model_name}_{lr}_{sigma}_"
+            f"{results_folder}/{train_mode}_{model_name}_{lr}_{sigma}_"
             f"{max_per_sample_grad_norm}_{sample_rate}_{epochs}_{n_runs}"
         )
     elif train_mode == 'Bagging':
         result_folder = (
-            f"{results_folder}/Bagging_{model_name}_{lr}_{sub_training_size}_"
+            f"{results_folder}/{train_mode}_{model_name}_{lr}_{sub_training_size}_"
             f"{epochs}_{n_runs}"
         )
     elif train_mode == 'Sub-DP':
         result_folder = (
-            f"{results_folder}/{model_name}_{lr}_{sigma}_"
+            f"{results_folder}/{train_mode}_{model_name}_{lr}_{sigma}_"
             f"{max_per_sample_grad_norm}_{sample_rate}_{epochs}_{sub_training_size}_{n_runs}"
         )
     elif train_mode == 'Sub-DP-no-amp':
         result_folder = (
-            f"{results_folder}/{model_name}_{lr}_{sigma}_"
-            f"{max_per_sample_grad_norm}_{sample_rate}_{epochs}_{sub_training_size}_{n_runs}_no_amp"
+            f"{results_folder}/{train_mode}_{model_name}_{lr}_{sigma}_"
+            f"{max_per_sample_grad_norm}_{sample_rate}_{epochs}_{sub_training_size}_{n_runs}"
         )
     else:
         exit('Invalid Method name.')
     print(result_folder)
     return result_folder
 
+def extract_summary_cifar(dir_path):
+    acc_list = np.load(f'{dir_path}/acc_list.npy')
+    acc_avg = np.mean(acc_list)
 
-def extract_summary_cifar(lines):
-    import re
-    accs = []
-    epsilon = []
-    for line in lines:
-        accs.extend(re.findall(r'(?<=Acc@1: )\d+.\d+', line))
-        accs = list(map(float, accs))
-        epsilon.extend(re.findall(r'(?<=epsilon )\d+.\d+', line))
-        epsilon = list(map(float, epsilon))
-    if len(epsilon) == 0:
-        epsilon = [float('inf')]
-    return max(accs), min(epsilon)
+    rdp_history = np.load(f'{dir_path}/rdp_history.npy')
+
+    if len(rdp_history) > 1:
+        raise RuntimeError('RDP history is longer than 1, why is that?')
+
+    (noise_multiplier, sample_rate, num_steps) = rdp_history[0]
+    eps, best_alpha = get_cdp(sample_rate, noise_multiplier, num_steps)
+
+    return acc_avg, eps
 
 
-def extract_summary_mnist(lines):
-    import re
-    accs = []
-    epsilon = []
-    for line in lines:
-        accs.extend(re.findall(r'(?<=\()\d+.\d+', line))
-        accs = list(map(float, accs))
-        epsilon.extend(re.findall(r'(?<=epsilon )\d+.\d+', line))
-        epsilon = list(map(float, epsilon))
-    if len(epsilon) == 0:
-        epsilon = [float('inf')]
-    return max(accs), min(epsilon)
+# def extract_summary_cifar(lines):
+#     import re
+#     accs = []
+#     epsilon = []
+#     for line in lines:
+#         accs.extend(re.findall(r'(?<=Acc@1: )\d+.\d+', line))
+#         accs = list(map(float, accs))
+#         epsilon.extend(re.findall(r'(?<=epsilon )\d+.\d+', line))
+#         epsilon = list(map(float, epsilon))
+#     if len(epsilon) == 0:
+#         epsilon = [float('inf')]
+#     return max(accs), min(epsilon)
+
+
+# def extract_summary_mnist(lines):
+#     import re
+#     accs = []
+#     epsilon = []
+#     for line in lines:
+#         accs.extend(re.findall(r'(?<=\()\d+.\d+', line))
+#         accs = list(map(float, accs))
+#         epsilon.extend(re.findall(r'(?<=epsilon )\d+.\d+', line))
+#         epsilon = list(map(float, epsilon))
+#     if len(epsilon) == 0:
+#         epsilon = [float('inf')]
+#     return max(accs), min(epsilon)
 
 
 def aggres_meta_info(aggregate_result):
