@@ -127,6 +127,7 @@ def train(args, model, train_loader, optimizer, privacy_engine, epoch, device, p
     for i, (images, target) in enumerate(tqdm(train_loader)):
 
         # print(torch.cuda.memory_summary())
+        # print(f'batch id: {i}, batch size: {len(images)}')
         
         images = images.to(device)
         target = target.to(device)
@@ -155,7 +156,7 @@ def train(args, model, train_loader, optimizer, privacy_engine, epoch, device, p
         losses.append(loss.detach().item())
         top1_acc.append(acc1)
 
-        if batch_num is not None and i+1 >= batch_num:
+        if batch_num is not None and i >= batch_num:
             break
 
 
