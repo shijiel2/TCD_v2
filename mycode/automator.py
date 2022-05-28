@@ -2,8 +2,8 @@ import itertools
 import socket
 
 import subprocess
-from certify_utilis import get_dir, extract_summary_cifar, extract_summary_mnist
-from notification import NOTIFIER
+from certify_utilis import get_dir, extract_summary
+# from notification import NOTIFIER
 from datetime import datetime
 from pathlib import Path
 
@@ -13,7 +13,7 @@ DATASET = 'cifar10'
 TRAIN_MODE = 'Sub-DP' # DP, Sub-DP, Bagging, Sub-DP-no-amp
 
 # No saving
-TRAIN_COMMAND = 'python {dataset}.py --n-runs {n_runs} --epochs {epochs} --sigma {sigma} --sample-rate {sample_rate} --lr {lr} -c {c} --model-name {model_name} --sub-training-size {sub_training_size} --train-mode {train_mode} --batch-size-test 100' # --save-model
+TRAIN_COMMAND = 'python {dataset}.py --n-runs {n_runs} --epochs {epochs} --sigma {sigma} --sample-rate {sample_rate} --lr {lr} -c {c} --model-name {model_name} --sub-training-size {sub_training_size} --train-mode {train_mode} --batch-size-test 100 --dist_backend nccl' # --save-model
 
 EVAL_COMMAND = 'python {dataset}.py --n-runs {n_runs} --epochs {epochs} --sigma {sigma} --sample-rate {sample_rate} --lr {lr} -c {c} --model-name {model_name} --sub-training-size {sub_training_size} --train-mode {train_mode} --load-model'
 
@@ -51,12 +51,12 @@ elif DATASET == 'cifar10':
     results_folder = '../results/cifar10'
     model_names = ['ResNet18']
     training_size = 50000
-    n_runss = [5]
-    epochss = [200]
-    sigmas = [0.0] # sigmas = [1.0, 1.5, 2.0]
-    sample_rates = [100/500] # sample_rates = [512/10000, 1024/10000]
+    n_runss = [3]
+    epochss = [10]
+    sigmas = [1.0] # sigmas = [1.0, 1.5, 2.0]
+    sample_rates = [128/500] # sample_rates = [512/10000, 1024/10000]
     lrs = [0.1] # lrs = [0.01, 0.05, 0.1]
-    clips = [1000000, 1000, 100, 50, 10] # clips = [34 for sigma=1]
+    clips = [1000000] # clips = [34 for sigma=1]
     sub_training_sizes = [500]
     
 
@@ -100,14 +100,8 @@ if 'summary' in MODE:
     summarys = []
     for nr, ep, sig, sr, lr, c, sts, mn in itertools.product(n_runss, epochss, sigmas, sample_rates, lrs, clips, sub_training_sizes, model_names):
         dir_path = get_dir(TRAIN_MODE, results_folder, mn, lr, sig, c, sr, ep, nr, sts)
-        trainlog_path = f'{dir_path}/train.log'
-        with open(trainlog_path, 'r') as f:
-            lines = f.readlines()
-            if DATASET == 'cifar10':
-                acc, eps = extract_summary_cifar(lines)
-            elif DATASET == 'mnist' or DATASET == 'fashion_mnist':
-                acc, eps = extract_summary_mnist(lines)
-            summarys.append((dir_path, acc, eps))
+        acc, eps = extract_summary(dir_path)
+        summarys.append((dir_path, acc, eps))
     summarys.sort(key=lambda x:x[1])
     
     # make folder 
@@ -125,4 +119,4 @@ if 'summary' in MODE:
 
 
 
-NOTIFIER.notify(socket.gethostname(), 'Job Done.')
+# NOTIFIER.notify(socket.gethostname(), 'Job Done.')

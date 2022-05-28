@@ -727,7 +727,7 @@ def get_dir(train_mode, results_folder, model_name, lr, sigma, max_per_sample_gr
     print(result_folder)
     return result_folder
 
-def extract_summary_cifar(dir_path):
+def extract_summary(dir_path):
     acc_list = np.load(f'{dir_path}/acc_list.npy')
     acc_avg = np.mean(acc_list)
 
