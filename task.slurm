@@ -4,9 +4,9 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=24
-#SBATCH --time=00:05:00
+#SBATCH --time=10:00:00
 #SBATCH --mem=12G
-#SBATCH --partition=shortgpgpu
+#SBATCH --partition=gpgpu
 #SBATCH --gres=gpu:4
 #SBATCH -q gpgpumse
 #SBATCH -A punim1629

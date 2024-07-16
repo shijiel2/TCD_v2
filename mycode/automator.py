@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 
-MODE = ['train', 'neval', 'ncertify', 'nplot', 'nablation', 'nsub-acc-test', 'nsummary']
+MODE = ['train', 'neval', 'ncertify', 'nplot', 'nablation', 'nsub-acc-test', 'summary']
 DATASET = 'cifar10'
 TRAIN_MODE = 'Sub-DP' # DP, Sub-DP, Bagging, Sub-DP-no-amp
 
@@ -51,13 +51,13 @@ elif DATASET == 'cifar10':
     results_folder = '../results/cifar10'
     model_names = ['ResNet18']
     training_size = 50000
-    n_runss = [3]
-    epochss = [10]
-    sigmas = [1.0] # sigmas = [1.0, 1.5, 2.0]
-    sample_rates = [128/500] # sample_rates = [512/10000, 1024/10000]
-    lrs = [0.1] # lrs = [0.01, 0.05, 0.1]
-    clips = [1000000] # clips = [34 for sigma=1]
-    sub_training_sizes = [500]
+    n_runss = [2]
+    epochss = [150]
+    sigmas = [0.5] # sigmas = [1.0, 1.5, 2.0]
+    sample_rates = [100/1000] # sample_rates = [512/10000, 1024/10000]
+    lrs = [0.1, 0.01] # lrs = [0.01, 0.05, 0.1]
+    clips = [5.0, 10.0, 20.0, 50.0, 100.0] # clips = [34 for sigma=1]
+    sub_training_sizes = [1000]
     
 
 if 'train' in MODE:
